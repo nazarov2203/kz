@@ -13,26 +13,33 @@ jobs:
       - name: Set up Docker
         uses: docker/setup-buildx-action@v3
 
-      - name: Scan licenses with Trivy
-        uses: aquasecurity/trivy-action@0.14.0
-        with:
-          scan-type: 'image'
-          image-ref: 'alpine/openssl:latest'
-          scanners: 'license'
-          severity: 'UNKNOWN'
-          exit-code: '1'
-          format: 'table'
-          ignore-unfixed: true
+      - name: Strict license scan
+        id: trivy-scan
+        run: |
+          docker pull alpine/openssl:latest
+          trivy image --scanners license \
+          --format json \
+          --exit-code 0 \
+          alpine/openssl:latest > trivy-results.json
+          
+          if [ $(jq '.Results[].Licenses | length' trivy-results.json) -gt 0 ]; then
+            echo "::error::Found licenses in image!"
+            exit 1
+          fi
 
-      - name: Save license report
+      - name: Generate license report
         if: always()
         run: |
-          echo "License scan completed at: $(date)" > license-report.txt
-          echo "Image: alpine/openssl:latest" >> license-report.txt
-          echo "Status: ${{ job.status }}" >> license-report.txt
+          echo "=== License Scan Report ===" > report.txt
+          echo "Image: alpine/openssl:latest" >> report.txt
+          echo "Scan date: $(date)" >> report.txt
+          echo "Licenses found: $([ ${{ steps.trivy-scan.outcome }} == 'failure' ] && echo "YES" || echo "NO")" >> report.txt
+          cat trivy-results.json | jq -r '.Results[].Licenses[].Name' >> report.txt
 
-      - name: Upload license report
+      - name: Upload report
         uses: actions/upload-artifact@v4
         with:
-          name: license-scan-results
-          path: license-report.txt
+          name: license-report
+          path: |
+            report.txt
+            trivy-results.json
