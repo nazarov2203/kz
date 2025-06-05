@@ -3,24 +3,36 @@ name: Docker Image
 on:
   push:
     branches: [main]
-  workflow_dispatch:  #nazarov
+  workflow_dispatch:
 
 jobs:
   license-check:
     runs-on: ubuntu-latest
+    
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Set up Docker
+        uses: docker/setup-buildx-action@v3
 
-      - name: Install Trivy
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update
-          sudo apt-get install -y trivy
+      - name: Scan licenses with Trivy
+        uses: aquasecurity/trivy-action@0.14.0
+        with:
+          scan-type: 'image'
+          image-ref: 'alpine/openssl:latest'
+          scanners: 'license'
+          severity: 'UNKNOWN'
+          exit-code: '1'
+          format: 'table'
+          ignore-unfixed: true
 
-      - name: Scan for licenses
+      - name: Save license report
+        if: always()
         run: |
-          trivy image --scanners license --exit-code 1 --severity UNKNOWN alpine/openssl
+          echo "License scan completed at: $(date)" > license-report.txt
+          echo "Image: alpine/openssl:latest" >> license-report.txt
+          echo "Status: ${{ job.status }}" >> license-report.txt
+
+      - name: Upload license report
+        uses: actions/upload-artifact@v4
+        with:
+          name: license-scan-results
+          path: license-report.txt
